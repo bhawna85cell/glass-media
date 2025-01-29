@@ -1,2 +1,2 @@
 # glass-media
-Misinformation detection and fact checking 
+Misinformation detector and fact checker
