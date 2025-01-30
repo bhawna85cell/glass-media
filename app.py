@@ -7,18 +7,22 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from PIL import Image
 import io
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-# Load models
-model = AutoModelForSequenceClassification.from_pretrained("models/misinformation_model")
-tokenizer = AutoTokenizer.from_pretrained("models/misinformation_model")
-
+API_URL = "https://fakenewsfilter.onrender.com/predict"
 
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 API_KEY = 'AIzaSyC8SxCy92vwF0gpjZ2RF7uyolVcKaUJjMc'
 service = build('kgsearch', 'v1', developerKey=API_KEY)
 OCR_API_KEY = "K89917156688957"  # Replace with your OCRSpace API Key
 
+def predict_misinformation(text):
+    payload = {"input": text}
+    response = requests.post(API_URL, json=payload)
+
+    if response.status_code == 200:
+        return response.json()["prediction"]
+    else:
+        return f"Error: {response.status_code}, {response.text}"
 # Define OCR function using OCRSpace API
 def image_to_text(image):
     img_bytes = io.BytesIO()
@@ -35,13 +39,7 @@ def image_to_text(image):
     return "Error: Unable to extract text."
 
 # Misinformation detection function
-def predict_misinformation(text):
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
-    with torch.no_grad():
-        outputs = model(**inputs)
-        logits = outputs.logits
-        prediction = torch.argmax(logits, dim=-1).item()
-    return prediction
+
 
 # Google Knowledge Graph Fact-Checking
 def get_google_kg_entity(query):
@@ -155,4 +153,3 @@ with st.expander("ℹ️ How to Use"):
         - Click the appropriate button to check for misinformation or fact-check.
         - In Advanced options in left panel set the threshold of similarity coefficient for fact checking.
     """)
-
