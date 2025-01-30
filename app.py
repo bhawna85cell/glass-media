@@ -1,16 +1,19 @@
 import streamlit as st
 import requests
-from transformers import BertTokenizer, BertForSequenceClassification
+# from transformers import BertTokenizer, BertForSequenceClassification
 import torch
 from googleapiclient.discovery import build
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from PIL import Image
 import io
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 # Load models
-model = BertForSequenceClassification.from_pretrained("models/misinformation_model")
-tokenizer = BertTokenizer.from_pretrained("models/misinformation_model")
+model = AutoModelForSequenceClassification.from_pretrained("models/misinformation_model")
+tokenizer = AutoTokenizer.from_pretrained("models/misinformation_model")
+
+
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 API_KEY = 'AIzaSyC8SxCy92vwF0gpjZ2RF7uyolVcKaUJjMc'
 service = build('kgsearch', 'v1', developerKey=API_KEY)
