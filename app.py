@@ -130,7 +130,10 @@ if st.button("Check News"):
     if user_input:
         with st.spinner("Analyzing news..."):
             prediction = predict_misinformation(user_input)
-            st.success("This news is real." if prediction == 1 else "This news is fake.")
+            if prediction == 1:
+                st.success("This news is real.")
+            else:
+                st.error("This news is fake.")
     else:
         st.warning("Please enter some text or upload an image.")
 
