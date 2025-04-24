@@ -1,36 +1,48 @@
 import streamlit as st
 import requests
-# from transformers import BertTokenizer, BertForSequenceClassification
 import torch
-from googleapiclient.discovery import build
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 from PIL import Image
 import io
 
-API_URL = "https://fakenewsfilter.onrender.com/predict"
+from googleapiclient.discovery import build
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
 
+import google.generativeai as genai
+
+# === API KEYS ===
+GENAI_API_KEY = "AIzaSyA-m2pt91XgayRfAYaV3KFBZ-g6pTdb_BI"
+GOOGLE_KG_API_KEY = "AIzaSyAsJyPU-W-IiNm525tyzdakLkFi0uXAdIY"
+OCR_API_KEY = "K89917156688957"
+PREDICTION_API = "https://fakenewsfilter.onrender.com/predict"
+
+# === CONFIGURE APIs ===
+genai.configure(api_key=GENAI_API_KEY)
+service = build('kgsearch', 'v1', developerKey=GOOGLE_KG_API_KEY)
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
-API_KEY = 'AIzaSyAsJyPU-W-IiNm525tyzdakLkFi0uXAdIY'
-service = build('kgsearch', 'v1', developerKey=API_KEY)
-OCR_API_KEY = "K89917156688957"  # Replace with your OCRSpace API Key
 
-def predict_misinformation(text):
-    payload = {"input": text}
-    response = requests.post(API_URL, json=payload)
+# === Gemini AI Fact-Checker ===
+def get_fact_check_verification(user_statement):
+    prompt = f"""
+    You are an AI fact-checking assistant. Categorize the given statement into one of the following categories:
+    - ✅ True: If the statement is entirely correct.
+    - ❌ False: If the statement is incorrect or contradicts known facts.
+    - 🤔 Likely True: If the statement is mostly correct but lacks some details.
+    - ⚠️ Likely False: If the statement is misleading or lacks proper context.
 
-    if response.status_code == 200:
-        return response.json()["prediction"]
-    else:
-        return f"Error: {response.status_code}, {response.text}"
-# Define OCR function using OCRSpace API
+    Statement: "{user_statement}"
+    """
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    response = model.generate_content(prompt)
+    return response.text.strip()
+
+# === Image to Text using OCR ===
 def image_to_text(image):
     img_bytes = io.BytesIO()
     image.save(img_bytes, format='PNG')
-    img_bytes = img_bytes.getvalue()
     response = requests.post(
         "https://api.ocr.space/parse/image",
-        files={"file": ("image.png", img_bytes)},
+        files={"file": ("image.png", img_bytes.getvalue())},
         data={"apikey": OCR_API_KEY, "language": "eng"},
     )
     result = response.json()
@@ -38,25 +50,30 @@ def image_to_text(image):
         return result["ParsedResults"][0]["ParsedText"].strip()
     return "Error: Unable to extract text."
 
-# Misinformation detection function
+# === Fake News Prediction ===
+def predict_misinformation(text):
+    payload = {"input": text}
+    response = requests.post(PREDICTION_API, json=payload)
+    if response.status_code == 200:
+        return response.json()["prediction"]
+    return f"Error: {response.status_code}, {response.text}"
 
-
-# Google Knowledge Graph Fact-Checking
+# === Knowledge Graph Entity Search ===
 def get_google_kg_entity(query):
     response = service.entities().search(query=query, limit=1).execute()
     if 'itemListElement' in response:
         entity = response['itemListElement'][0]
-        entity_name = entity['result']['name']
-        entity_description = entity['result']['description'] if 'description' in entity['result'] else "No description available"
-        entity_url = entity['result']['url'] if 'url' in entity['result'] else None
-        return entity_name, entity_description, entity_url
+        result = entity['result']
+        return result.get('name'), result.get('description', "No description"), result.get('url', None)
     return None, None, None
 
+# === Similarity Check ===
 def compute_similarity(input_text, page_content):
     input_embedding = embedder.encode([input_text])
     page_embedding = embedder.encode([page_content])
     return cosine_similarity(input_embedding, page_embedding)[0][0]
 
+# === Knowledge Graph Based Fact Check ===
 def user_friendly_fact_check(input_text, threshold=0.75):
     try:
         key_terms = input_text.split()[:3]
@@ -71,9 +88,8 @@ def user_friendly_fact_check(input_text, threshold=0.75):
                     if similarity_score > best_match_score:
                         best_match_score = similarity_score
                         best_match_details = {"name": name, "description": description, "url": url}
-            except Exception as e:
-                print(f"Error fetching data for term '{term}': {e}")
-                continue  # Skip the term and move to the next
+            except Exception:
+                continue
 
         if best_match_score > threshold:
             result = "✅ Fact Check Passed"
@@ -101,13 +117,12 @@ def user_friendly_fact_check(input_text, threshold=0.75):
     except Exception as e:
         return {
             "Fact-Check Result": "⚠️ Error",
-            "Message": "An error occurred while processing the request. Please try again later.",
-            "Error Details": str(e)  # Optional: You can remove this in production for security
+            "Message": "An error occurred during fact-checking.",
+            "Error Details": str(e)
         }
 
-
-# Streamlit App UI
-st.set_page_config(page_title="🔍Misinformation Detection", layout="wide")
+# === Streamlit UI ===
+st.set_page_config(page_title="🔍 Misinformation Detection", layout="wide")
 st.markdown("# 🕵️ Misinformation Detection and Fact-Checking")
 st.sidebar.markdown("### Advanced Options")
 threshold = st.sidebar.slider("Set Similarity Threshold", 0.0, 1.0, 0.75)
@@ -129,27 +144,36 @@ if st.button("Check News"):
         with st.spinner("Analyzing news..."):
             prediction = predict_misinformation(user_input)
             if prediction == 1:
-                st.success("This news is real.")
+                st.success("✅ This news is real.")
             else:
-                st.error("This news is fake.")
+                st.error("❌ This news is fake.")
     else:
         st.warning("Please enter some text or upload an image.")
 
 if st.button("Check Facts"):
     if user_input:
         with st.spinner("Fact-checking..."):
+            # --- Knowledge Graph ---
             result = user_friendly_fact_check(user_input, threshold)
+            st.markdown("### 🧠 Knowledge Graph Based Check")
             st.markdown(f"**Fact-Check Result:** {result['Fact-Check Result']}")
             st.markdown(f"**Confidence Level:** {result['Confidence Level']}")
             st.markdown(f"**Similarity Score:** {result['Similarity Score']}")
             if result['Entity URL'] != "No URL available":
                 st.markdown(f"[More Info]({result['Entity URL']})")
+            st.markdown("---")
+
+            # --- Gemini AI ---
+            st.markdown("### 🤖 Gemini AI Based Check")
+            gemini_result = get_fact_check_verification(user_input)
+            st.markdown(f"**Gemini Verdict:** {gemini_result}")
     else:
         st.warning("Please enter some text or upload an image.")
-        
+
 with st.expander("ℹ️ How to Use"):
     st.write("""
-        - Enter the text or upload image you want to verify.
-        - Click the appropriate button to check for misinformation or fact-check.
-        - In Advanced options in left panel set the threshold of similarity coefficient for fact checking.
+        - Enter the text or upload an image to verify.
+        - Click "Check News" for fake news detection.
+        - Click "Check Facts" to fact-check using AI and the Knowledge Graph.
+        - Use the threshold slider in the sidebar to control sensitivity of fact-checking.
     """)
